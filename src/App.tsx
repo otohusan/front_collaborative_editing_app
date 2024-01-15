@@ -3,12 +3,43 @@ import getUserData from "./api/getUserData";
 import getArticlesData from "./api/getArticles";
 import { User } from "../type/user.type";
 import { Article } from "../type/article.type";
+import axios from "axios";
+import io from "socket.io-client";
 
 function App() {
   const [userData, setUserData] = useState<User | null>(null);
   const [articlesData, setArticlesData] = useState<Article[] | null>(null);
   const [articleText, setArticleText] = useState<string | undefined>(undefined);
-  const [seleArticleId, setSeleArticleId] = useState<number | null>(null);
+  const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
+
+  useEffect(() => {
+    const socket = io("http://localhost:3000");
+
+    const handleArticleUpdated = (articleData: {
+      article_id: number;
+      article_text: string;
+    }) => {
+      console.log(`Received 'articleUpdated' event`, articleData);
+      setArticlesData((prevArticlesData) => {
+        if (!prevArticlesData) {
+          return prevArticlesData;
+        }
+
+        return prevArticlesData.map((article) =>
+          article.id === articleData.article_id
+            ? { ...article, text: articleData.article_text || "" } // null の場合は空の文字列を使用
+            : article
+        );
+      });
+    };
+
+    socket.on("articleUpdated", handleArticleUpdated);
+
+    // クリーンアップ関数でイベントリスナーを削除
+    return () => {
+      socket.off("articleUpdated", handleArticleUpdated);
+    };
+  }, []); // 空の依存配列を指定して、マウント時のみ実行
 
   useEffect(() => {
     const fetchUserData = async () => {
@@ -35,7 +66,7 @@ function App() {
     setArticleText(event.target.value);
   };
 
-  const updateArticleText = (selectedArticleId: number | null) => {
+  const updateArticleText = async (selectedArticleId: number | null) => {
     setArticlesData((prevArticlesData) => {
       if (!prevArticlesData) {
         return prevArticlesData;
@@ -46,6 +77,13 @@ function App() {
           ? { ...article, text: articleText || "" } // null の場合は空の文字列を使用
           : article
       );
+    });
+
+    if (!selectedArticle) {
+      return;
+    }
+    await axios.put(`http://localhost:3000/articles/${selectedArticle.id}`, {
+      text: articleText || "",
     });
   };
 
@@ -66,7 +104,7 @@ function App() {
             <p
               onClick={() => {
                 handleArticleClick(article.text);
-                setSeleArticleId(article.id);
+                setSelectedArticle(article);
               }}
             >
               {article.text}
@@ -86,7 +124,10 @@ function App() {
         />
         <button
           onClick={() => {
-            updateArticleText(seleArticleId);
+            if (!selectedArticle) {
+              return;
+            }
+            updateArticleText(selectedArticle.id);
           }}
         >
           更新
